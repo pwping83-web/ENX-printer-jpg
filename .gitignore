@@ -10,3 +10,5 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .vercel
+.cursor/hooks/.auto-sync.lock
+.cursor/hooks/last-sync-error.log
