@@ -1,8 +1,5 @@
 $ErrorActionPreference = "Stop"
 
-# Consume hook payload from stdin (kept for future filtering needs).
-$null = [Console]::In.ReadToEnd()
-
 git rev-parse --is-inside-work-tree *> $null
 if ($LASTEXITCODE -ne 0) {
   exit 0
