@@ -1,4 +1,7 @@
 $ErrorActionPreference = "Stop"
+if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+  $PSNativeCommandUseErrorActionPreference = $false
+}
 
 $lockPath = ".cursor/hooks/.auto-sync.lock"
 $lastErrorPath = ".cursor/hooks/last-sync-error.log"
