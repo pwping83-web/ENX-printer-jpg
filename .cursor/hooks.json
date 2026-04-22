@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "powershell -ExecutionPolicy Bypass -File .cursor/hooks/auto-commit.ps1",
+        "timeout": 30
+      }
+    ]
+  }
+}
