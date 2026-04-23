@@ -2,16 +2,16 @@ import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import * as kv from "./kv_store.tsx";
+
 const app = new Hono();
 
-// Supabase client for storage
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
 const TROUBLE_BUCKET = "make-773fbcdb-trouble-photos";
+const PHONES_TABLE = "enx_phones";
 
 // Idempotently create the bucket on startup
 (async () => {
@@ -27,10 +27,8 @@ const TROUBLE_BUCKET = "make-773fbcdb-trouble-photos";
   }
 })();
 
-// Enable logger
 app.use('*', logger(console.log));
 
-// Enable CORS for all routes and methods
 app.use(
   "/*",
   cors({
@@ -42,7 +40,35 @@ app.use(
   }),
 );
 
-// Health check endpoint
+// DB row → PhoneEntry 변환
+function rowToEntry(row: any) {
+  return {
+    phone: row.phone,
+    registeredAt: row.registered_at,
+    expiresAt: row.expires_at,
+    planType: row.plan_type,
+    planLabel: row.plan_label ?? undefined,
+    renewalPrice: row.renewal_price ?? undefined,
+    lastAccessedAt: row.last_accessed_at ?? undefined,
+    accessHistory: row.access_history ?? [],
+  };
+}
+
+// PhoneEntry → DB row 변환
+function entryToRow(entry: any) {
+  return {
+    phone: entry.phone,
+    registered_at: entry.registeredAt,
+    expires_at: entry.expiresAt,
+    plan_type: entry.planType,
+    plan_label: entry.planLabel ?? null,
+    renewal_price: entry.renewalPrice ?? null,
+    last_accessed_at: entry.lastAccessedAt ?? null,
+    access_history: entry.accessHistory ?? [],
+  };
+}
+
+// Health check
 app.get("/make-server-773fbcdb/health", (c) => {
   return c.json({ status: "ok" });
 });
@@ -52,8 +78,9 @@ app.get("/make-server-773fbcdb/health", (c) => {
 // 모든 전화번호 목록 조회
 app.get("/make-server-773fbcdb/phones", async (c) => {
   try {
-    const phones = await kv.getByPrefix("phone:");
-    return c.json({ phones: phones || [] });
+    const { data, error } = await supabase.from(PHONES_TABLE).select("*");
+    if (error) throw error;
+    return c.json({ phones: (data || []).map(rowToEntry) });
   } catch (error) {
     console.log("Error fetching phone list:", error);
     return c.json({ error: `전화번호 목록 조회 실패: ${error}` }, 500);
@@ -68,14 +95,26 @@ app.post("/make-server-773fbcdb/phones", async (c) => {
     if (!phone || !registeredAt || !expiresAt || !planType) {
       return c.json({ error: "필수 필드 누락: phone, registeredAt, expiresAt, planType" }, 400);
     }
-    // 중복 체크
-    const existing = await kv.get(`phone:${phone}`);
+
+    const { data: existing } = await supabase
+      .from(PHONES_TABLE)
+      .select("phone")
+      .eq("phone", phone)
+      .maybeSingle();
+
     if (existing) {
       return c.json({ error: "이미 등록된 전화번호입니다" }, 409);
     }
-    const entry = { phone, registeredAt, expiresAt, planType };
-    await kv.set(`phone:${phone}`, entry);
-    return c.json({ success: true, entry });
+
+    const row = entryToRow(body);
+    const { data, error } = await supabase
+      .from(PHONES_TABLE)
+      .insert(row)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json({ success: true, entry: rowToEntry(data) });
   } catch (error) {
     console.log("Error adding phone:", error);
     return c.json({ error: `전화번호 등록 실패: ${error}` }, 500);
@@ -86,7 +125,11 @@ app.post("/make-server-773fbcdb/phones", async (c) => {
 app.delete("/make-server-773fbcdb/phones/:phone", async (c) => {
   try {
     const phone = c.req.param("phone");
-    await kv.del(`phone:${phone}`);
+    const { error } = await supabase
+      .from(PHONES_TABLE)
+      .delete()
+      .eq("phone", phone);
+    if (error) throw error;
     return c.json({ success: true });
   } catch (error) {
     console.log("Error deleting phone:", error);
@@ -103,13 +146,26 @@ app.put("/make-server-773fbcdb/phones/:phone/extend", async (c) => {
     if (!newExpiresAt) {
       return c.json({ error: "newExpiresAt 필드 필요" }, 400);
     }
-    const existing = await kv.get(`phone:${phone}`);
+
+    const { data: existing } = await supabase
+      .from(PHONES_TABLE)
+      .select("*")
+      .eq("phone", phone)
+      .maybeSingle();
+
     if (!existing) {
       return c.json({ error: "등록되지 않은 전화번호입니다" }, 404);
     }
-    const updated = { ...existing, expiresAt: newExpiresAt };
-    await kv.set(`phone:${phone}`, updated);
-    return c.json({ success: true, entry: updated });
+
+    const { data, error } = await supabase
+      .from(PHONES_TABLE)
+      .update({ expires_at: newExpiresAt })
+      .eq("phone", phone)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json({ success: true, entry: rowToEntry(data) });
   } catch (error) {
     console.log("Error extending phone:", error);
     return c.json({ error: `기간 연장 실패: ${error}` }, 500);
@@ -120,11 +176,17 @@ app.put("/make-server-773fbcdb/phones/:phone/extend", async (c) => {
 app.get("/make-server-773fbcdb/phones/:phone/verify", async (c) => {
   try {
     const phone = c.req.param("phone");
-    const entry = await kv.get(`phone:${phone}`);
-    if (!entry) {
+    const { data, error } = await supabase
+      .from(PHONES_TABLE)
+      .select("*")
+      .eq("phone", phone)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) {
       return c.json({ found: false, error: "등록되지 않은 전화번호입니다" });
     }
-    return c.json({ found: true, entry });
+    return c.json({ found: true, entry: rowToEntry(data) });
   } catch (error) {
     console.log("Error verifying phone:", error);
     return c.json({ error: `전화번호 인증 실패: ${error}` }, 500);
@@ -139,12 +201,20 @@ app.post("/make-server-773fbcdb/phones/seed", async (c) => {
     if (!phones || !Array.isArray(phones)) {
       return c.json({ error: "phones 배열 필요" }, 400);
     }
+
     let seeded = 0;
     for (const entry of phones) {
-      const existing = await kv.get(`phone:${entry.phone}`);
+      const { data: existing } = await supabase
+        .from(PHONES_TABLE)
+        .select("phone")
+        .eq("phone", entry.phone)
+        .maybeSingle();
+
       if (!existing) {
-        await kv.set(`phone:${entry.phone}`, entry);
-        seeded++;
+        const { error } = await supabase
+          .from(PHONES_TABLE)
+          .insert(entryToRow(entry));
+        if (!error) seeded++;
       }
     }
     return c.json({ success: true, seeded });
@@ -156,7 +226,6 @@ app.post("/make-server-773fbcdb/phones/seed", async (c) => {
 
 // ━━ 고장신고 사진 업로드 API ━━
 
-// 사진 업로드 (multipart/form-data)
 app.post("/make-server-773fbcdb/trouble/upload-photo", async (c) => {
   try {
     const formData = await c.req.formData();
@@ -167,7 +236,6 @@ app.post("/make-server-773fbcdb/trouble/upload-photo", async (c) => {
       return c.json({ error: "사진 파일이 없습니다" }, 400);
     }
 
-    // 파일 크기 제��� (10MB)
     if (file.size > 10 * 1024 * 1024) {
       return c.json({ error: "파일 크기가 10MB를 초과합니다" }, 400);
     }
@@ -192,7 +260,6 @@ app.post("/make-server-773fbcdb/trouble/upload-photo", async (c) => {
       return c.json({ error: `사진 업로드 실패: ${uploadError.message}` }, 500);
     }
 
-    // 7일 유효 서명 URL 생성
     const { data: signedData, error: signedError } = await supabase.storage
       .from(TROUBLE_BUCKET)
       .createSignedUrl(filePath, 60 * 60 * 24 * 7);
@@ -209,37 +276,34 @@ app.post("/make-server-773fbcdb/trouble/upload-photo", async (c) => {
   }
 });
 
-// ━━ 접속 기록 API (히스토리 배열 저장 방식) ━━
+// ━━ 접속 기록 API ━━
 app.put("/make-server-773fbcdb/phones/:phone/touch", async (c) => {
   try {
     const phone = c.req.param("phone");
-    const existing = await kv.get(`phone:${phone}`);
-    
+
+    const { data: existing } = await supabase
+      .from(PHONES_TABLE)
+      .select("last_accessed_at, access_history")
+      .eq("phone", phone)
+      .maybeSingle();
+
     if (existing) {
-      // 한국 시간(KST) 오늘 날짜 추출
       const now = new Date();
       const kstDate = new Date(now.getTime() + (9 * 60 * 60 * 1000));
       const dateString = kstDate.toISOString().split('T')[0];
-      
-      existing.lastAccessedAt = dateString;
-      
-      // 접속 기록 히스토리(배열)가 없으면 생성
-      if (!existing.accessHistory) {
-        existing.accessHistory = [];
-      }
-      
-      // 오늘 날짜가 히스토리에 없으면 추가
-      if (!existing.accessHistory.includes(dateString)) {
-        existing.accessHistory.push(dateString);
-        
-        // 데이터가 무거워지지 않게 최대 30일치만 보관 (오래된 것 삭��)
-        if (existing.accessHistory.length > 30) {
-          existing.accessHistory.shift();
-        }
+
+      const history: string[] = existing.access_history || [];
+      if (!history.includes(dateString)) {
+        history.push(dateString);
+        if (history.length > 30) history.shift();
       }
 
-      await kv.set(`phone:${phone}`, existing);
+      await supabase
+        .from(PHONES_TABLE)
+        .update({ last_accessed_at: dateString, access_history: history })
+        .eq("phone", phone);
     }
+
     return c.json({ success: true });
   } catch (error) {
     console.log("Error touching phone:", error);
