@@ -8,6 +8,42 @@ const headers = {
   'Authorization': `Bearer ${publicAnonKey}`,
 };
 
+function mergePhones(primary: PhoneEntry[], secondary: PhoneEntry[]): PhoneEntry[] {
+  const map = new Map<string, PhoneEntry>();
+  for (const item of secondary) {
+    map.set(item.phone, item);
+  }
+  for (const item of primary) {
+    map.set(item.phone, item);
+  }
+  return Array.from(map.values());
+}
+
+function getMissingPhones(source: PhoneEntry[], target: PhoneEntry[]): PhoneEntry[] {
+  const targetSet = new Set(target.map((p) => p.phone));
+  return source.filter((p) => !targetSet.has(p.phone));
+}
+
+async function syncMissingPhonesToServer(entries: PhoneEntry[]): Promise<void> {
+  for (const entry of entries) {
+    try {
+      const res = await fetch(`${BASE_URL}/phones`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(entry),
+      });
+      if (!res.ok && res.status !== 409) {
+        const err = await res.json().catch(() => ({}));
+        console.error('syncMissingPhonesToServer error:', err);
+      }
+    } catch (error) {
+      if (!isNetworkFetchError(error)) {
+        console.error('syncMissingPhonesToServer failed:', error);
+      }
+    }
+  }
+}
+
 function readLocalPhones(): PhoneEntry[] {
   try {
     return JSON.parse(localStorage.getItem(LOCAL_PHONES_KEY) || '[]');
@@ -42,17 +78,29 @@ export interface PhoneEntry {
 // 모든 전화번호 목록 조회
 export async function fetchPhones(): Promise<PhoneEntry[]> {
   try {
+    const localPhones = readLocalPhones();
     const res = await fetch(`${BASE_URL}/phones`, { headers });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       if (shouldFallbackToLocal(err, res.status)) {
-        return readLocalPhones();
+        return localPhones;
       }
       console.error('fetchPhones error:', err);
       throw new Error(err.error || '전화번호 목록 조회 실패');
     }
     const data = await res.json();
-    return data.phones || [];
+    const remotePhones = data.phones || [];
+    const mergedPhones = mergePhones(remotePhones, localPhones);
+    writeLocalPhones(mergedPhones);
+
+    const missingOnServer = getMissingPhones(localPhones, remotePhones);
+    if (missingOnServer.length > 0) {
+      syncMissingPhonesToServer(missingOnServer).catch((e) => {
+        console.error('백그라운드 서버 동기화 실패:', e);
+      });
+    }
+
+    return mergedPhones;
   } catch (error) {
     if (isNetworkFetchError(error)) {
       return readLocalPhones();
@@ -84,7 +132,10 @@ export async function addPhone(entry: PhoneEntry): Promise<PhoneEntry> {
       throw new Error(err.error || '전화번호 등록 실패');
     }
     const data = await res.json();
-    return data.entry;
+    const savedEntry = data.entry || entry;
+    const merged = mergePhones([savedEntry], readLocalPhones());
+    writeLocalPhones(merged);
+    return savedEntry;
   } catch (error) {
     if (isNetworkFetchError(error)) {
       const phones = readLocalPhones();
@@ -116,6 +167,8 @@ export async function deletePhone(phone: string): Promise<void> {
       console.error('deletePhone error:', err);
       throw new Error(err.error || '전화번호 삭제 실패');
     }
+    const phones = readLocalPhones().filter((p) => p.phone !== phone);
+    writeLocalPhones(phones);
   } catch (error) {
     if (isNetworkFetchError(error)) {
       const phones = readLocalPhones().filter((p) => p.phone !== phone);
@@ -151,7 +204,18 @@ export async function extendPhone(phone: string, newExpiresAt: string): Promise<
       throw new Error(err.error || '기간 연장 실패');
     }
     const data = await res.json();
-    return data.entry;
+    const updatedEntry = data.entry;
+    if (updatedEntry) {
+      const phones = readLocalPhones();
+      const index = phones.findIndex((p) => p.phone === phone);
+      if (index >= 0) {
+        phones[index] = updatedEntry;
+      } else {
+        phones.push(updatedEntry);
+      }
+      writeLocalPhones(phones);
+    }
+    return updatedEntry;
   } catch (error) {
     if (isNetworkFetchError(error)) {
       const phones = readLocalPhones();
@@ -181,7 +245,23 @@ export async function verifyPhone(phone: string): Promise<{ found: boolean; entr
       console.error('verifyPhone error:', err);
       throw new Error(err.error || '전화번호 인증 실패');
     }
-    return await res.json();
+    const data = await res.json();
+    if (data?.found && data?.entry) {
+      const merged = mergePhones([data.entry], readLocalPhones());
+      writeLocalPhones(merged);
+      return data;
+    }
+
+    // 서버에서 유실된 경우 로컬 백업으로 인증 허용
+    const localEntry = readLocalPhones().find((p) => p.phone === phone);
+    if (localEntry) {
+      syncMissingPhonesToServer([localEntry]).catch((e) => {
+        console.error('verifyPhone 동기화 실패:', e);
+      });
+      return { found: true, entry: localEntry };
+    }
+
+    return data;
   } catch (error) {
     if (isNetworkFetchError(error)) {
       const entry = readLocalPhones().find((p) => p.phone === phone);
@@ -214,6 +294,8 @@ export async function seedPhones(phones: PhoneEntry[]): Promise<number> {
       throw new Error(err.error || '시딩 실패');
     }
     const data = await res.json();
+    const merged = mergePhones(phones, readLocalPhones());
+    writeLocalPhones(merged);
     return data.seeded;
   } catch (error) {
     if (isNetworkFetchError(error)) {
