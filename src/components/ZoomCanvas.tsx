@@ -323,16 +323,39 @@ export function ZoomCanvas({
       setCurrentScale(optimalScale);
     };
 
-    // 초기 그리기
-    redraw();
+    // 초기 그리기 — 레이아웃 확정 후 캔버스를 그려 로그인 직후 하얀 화면 방지
+    let rafId = 0;
+    const scheduleRedraw = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = requestAnimationFrame(() => {
+          redraw();
+        });
+      });
+    };
+
+    scheduleRedraw();
 
     // 리사이즈 이벤트 핸들러
     const handleResize = () => {
-      redraw();
+      scheduleRedraw();
     };
 
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+
+    const container = canvas.parentElement;
+    const resizeObserver = container
+      ? new ResizeObserver(() => scheduleRedraw())
+      : null;
+    if (resizeObserver && container) {
+      resizeObserver.observe(container);
+    }
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', handleResize);
+      resizeObserver?.disconnect();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomMode, firstShape, images, shapes]);
 

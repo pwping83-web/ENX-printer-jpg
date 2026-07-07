@@ -111,6 +111,8 @@ export default function EditorPage() {
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [currentUserEntry, setCurrentUserEntry] = useState<PhoneEntry | null>(null);
   const [showPhoneManagement, setShowPhoneManagement] = useState(false);
+  // 로그인 직후 에디터를 새로 마운트해 캔버스 초기 렌더 누락(하얀 화면) 방지
+  const [editorMountKey, setEditorMountKey] = useState(0);
 
   // Test mode state (30 seconds trial)
   // 테스트 모드 상태 (30초 체험)
@@ -412,6 +414,7 @@ export default function EditorPage() {
     if (savedAuth) {
       setIsAuthenticated(true);
       setCurrentUser(savedAuth);
+      setEditorMountKey((k) => k + 1);
       
       // 저장된 PhoneEntry 복원
       const savedEntry = sessionStorage.getItem('app-auth-entry');
@@ -737,6 +740,7 @@ export default function EditorPage() {
   const handleLogin = (phone: string, entry?: PhoneEntry) => {
     setIsAuthenticated(true);
     setCurrentUser(phone);
+    setEditorMountKey((k) => k + 1);
     if (entry) {
       setCurrentUserEntry(entry);
       sessionStorage.setItem('app-auth-entry', JSON.stringify(entry));
@@ -1773,7 +1777,7 @@ export default function EditorPage() {
   };
 
   return (
-    <div className="h-dvh flex flex-col bg-background premium-bg-pattern transition-colors sm:pb-0 pb-14 overflow-hidden">
+    <div key={editorMountKey} className="h-dvh flex flex-col bg-background premium-bg-pattern transition-colors sm:pb-0 pb-14 overflow-hidden">
       {/* 테스트 모드 타이머 (상단 중앙) */}
       {isTestMode && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-[fadeInBounce_0.5s_ease-out]">
