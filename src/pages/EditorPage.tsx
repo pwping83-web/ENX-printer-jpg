@@ -3,7 +3,6 @@ import { ZoomIn, HelpCircle, BookOpen, AlertTriangle, X, CalendarDays, Lock } fr
 // @imgly/background-removal — CDN(esm.sh)에서 런타임 로드 (번들 포함 시 30MB+ → 게시 실패)
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '../components/ui/button';
-import { LoginPage } from './auth/LoginPage';
 import { PhoneManagementPage } from './admin/PhoneManagementPage';
 import { MenuBar } from '../components/MenuBar';
 import { MobileToolbar } from '../components/MobileToolbar';
@@ -105,18 +104,21 @@ export default function EditorPage() {
     checkAndNotifyExpiry();
   }, []);
 
-  // Authentication state
-  // 인증 상태
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUser, setCurrentUser] = useState<string | null>(null);
-  const [currentUserEntry, setCurrentUserEntry] = useState<PhoneEntry | null>(null);
+  // Authentication state (App.tsx에서 로그인 처리 후 EditorPage만 마운트)
+  const [currentUser, setCurrentUser] = useState<string | null>(() => sessionStorage.getItem('app-auth-user'));
+  const [currentUserEntry, setCurrentUserEntry] = useState<PhoneEntry | null>(() => {
+    try {
+      const savedEntry = sessionStorage.getItem('app-auth-entry');
+      return savedEntry ? JSON.parse(savedEntry) : null;
+    } catch {
+      return null;
+    }
+  });
   const [showPhoneManagement, setShowPhoneManagement] = useState(false);
-  // 로그인 직후 에디터를 새로 마운트해 캔버스 초기 렌더 누락(하얀 화면) 방지
-  const [editorMountKey, setEditorMountKey] = useState(0);
 
   // Test mode state (30 seconds trial)
   // 테스트 모드 상태 (30초 체험)
-  const [isTestMode, setIsTestMode] = useState(false);
+  const [isTestMode, setIsTestMode] = useState(() => sessionStorage.getItem('app-auth-user') === 'TEST_MODE');
   const [testTimeLeft, setTestTimeLeft] = useState(30);
 
   // Main app state - All hooks must be declared before conditional rendering
@@ -408,25 +410,18 @@ export default function EditorPage() {
     seedInitialPhones();
   }, []);
 
-  // 세션 스토리지에서 인증 상태 복원
+  // 로그인 세션 후처리 (체험 모드 복원, 접속 기록)
   useEffect(() => {
     const savedAuth = sessionStorage.getItem('app-auth-user');
-    if (savedAuth) {
-      setIsAuthenticated(true);
-      setCurrentUser(savedAuth);
-      setEditorMountKey((k) => k + 1);
-      
-      // 저장된 PhoneEntry 복원
-      const savedEntry = sessionStorage.getItem('app-auth-entry');
-      if (savedEntry) {
-        try { setCurrentUserEntry(JSON.parse(savedEntry)); } catch {}
-      }
-      
-      // 사이트 접속 시 날짜 업데이트
-      if (savedAuth !== 'TEST_MODE') {
-        touchPhone(savedAuth).catch(() => {});
-      }
+    if (!savedAuth) return;
+
+    if (savedAuth === 'TEST_MODE') {
+      setIsTestMode(true);
+      setTestTimeLeft(60);
+      return;
     }
+
+    touchPhone(savedAuth).catch(() => {});
   }, []);
 
   // 테스트 모드 타이머 - 60초 후 강제 로그아웃
@@ -442,8 +437,9 @@ export default function EditorPage() {
         setIsTestMode(false);
         setTestTimeLeft(30);
         sessionStorage.removeItem('app-auth-user');
+        sessionStorage.removeItem('app-auth-entry');
         setCurrentUser(null);
-        setIsAuthenticated(false);
+        window.location.reload();
       }, 1000);
       
       return;
@@ -600,7 +596,7 @@ export default function EditorPage() {
     onToggleShortcutsHelp: () => setShowShortcutsHelp(prev => !prev),
     canUndo: historyIndex > 0,
     canRedo: historyIndex < history.length - 1,
-    isAuthenticated,
+    isAuthenticated: true,
   });
 
   // 배경 제거 확인 다이얼로그 표시 핸들러
@@ -737,45 +733,12 @@ export default function EditorPage() {
     }
   }, [images, isRemovingBg, shapes, shapeText, shapeTextColor, shapeFontSize, shapeFontFamily]);
 
-  const handleLogin = (phone: string, entry?: PhoneEntry) => {
-    setIsAuthenticated(true);
-    setCurrentUser(phone);
-    setEditorMountKey((k) => k + 1);
-    if (entry) {
-      setCurrentUserEntry(entry);
-      sessionStorage.setItem('app-auth-entry', JSON.stringify(entry));
-    }
-    sessionStorage.setItem('app-auth-user', phone);
-    
-    if (phone === 'TEST_MODE') {
-      setIsTestMode(true);
-      setTestTimeLeft(60);
-    } else {
-      // 로그인 시 날짜 업데이트
-      touchPhone(phone).catch(() => {});
-    }
-  };
-
   const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentUser(null);
-    setCurrentUserEntry(null);
     sessionStorage.removeItem('app-auth-user');
     sessionStorage.removeItem('app-auth-entry');
     toast.success('로그아웃되었습니다');
+    window.setTimeout(() => window.location.reload(), 300);
   };
-
-  // 인증되지 않은 경우 로그인 페이지 표시
-  if (!isAuthenticated) {
-    return (
-      <>
-        <LoginPage onLogin={handleLogin} onAdminPageOpen={() => setShowPhoneManagement(true)} />
-        {showPhoneManagement && (
-          <PhoneManagementPage onClose={() => setShowPhoneManagement(false)} />
-        )}
-      </>
-    );
-  }
 
   // shapes가 비어있거나 유효하지 않으면 빈 화면 표시 방지
   if (!shapes || shapes.length === 0) {
@@ -1777,7 +1740,7 @@ export default function EditorPage() {
   };
 
   return (
-    <div key={editorMountKey} className="h-dvh flex flex-col bg-background premium-bg-pattern transition-colors sm:pb-0 pb-14 overflow-hidden">
+    <div className="h-dvh flex flex-col bg-background premium-bg-pattern transition-colors sm:pb-0 pb-14 overflow-hidden">
       {/* 테스트 모드 타이머 (상단 중앙) */}
       {isTestMode && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-[fadeInBounce_0.5s_ease-out]">
