@@ -136,6 +136,12 @@ export function MobileToolbar({
     }
   };
 
+  const clampMm = (value: number, min: number, max: number) =>
+    Math.min(max, Math.max(min, value));
+
+  const mmInputClassName =
+    'w-12 text-center font-bold h-7 border-0 p-0 text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg focus-visible:ring-1 focus-visible:ring-indigo-300 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
+
   const showBgRemove = hasImages && onRemoveBackground;
 
   return (
@@ -207,7 +213,22 @@ export function MobileToolbar({
                         <Label className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                           <RectangleHorizontal className="w-3.5 h-3.5" />가로
                         </Label>
-                        <span className="text-sm text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-0.5 rounded-lg">{customRectWidth || 50}mm</span>
+                        <div className="flex items-center gap-0.5">
+                          <Input
+                            type="number"
+                            min={10}
+                            max={150}
+                            value={customRectWidth || 50}
+                            onChange={(e) => {
+                              const v = parseInt(e.target.value, 10);
+                              if (!isNaN(v)) {
+                                onCustomRectSizeChange?.(clampMm(v, 10, 150), customRectHeight || 30);
+                              }
+                            }}
+                            className={mmInputClassName}
+                          />
+                          <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">mm</span>
+                        </div>
                       </div>
                       <Slider
                         value={[customRectWidth || 50]}
@@ -223,7 +244,22 @@ export function MobileToolbar({
                         <Label className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                           <RectangleHorizontal className="w-3.5 h-3.5 rotate-90" />세로
                         </Label>
-                        <span className="text-sm text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-0.5 rounded-lg">{customRectHeight || 30}mm</span>
+                        <div className="flex items-center gap-0.5">
+                          <Input
+                            type="number"
+                            min={10}
+                            max={150}
+                            value={customRectHeight || 30}
+                            onChange={(e) => {
+                              const v = parseInt(e.target.value, 10);
+                              if (!isNaN(v)) {
+                                onCustomRectSizeChange?.(customRectWidth || 50, clampMm(v, 10, 150));
+                              }
+                            }}
+                            className={mmInputClassName}
+                          />
+                          <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">mm</span>
+                        </div>
                       </div>
                       <Slider
                         value={[customRectHeight || 30]}
@@ -241,7 +277,20 @@ export function MobileToolbar({
                       <Label className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                         <Ruler className="w-3.5 h-3.5" />크기
                       </Label>
-                      <span className="text-sm text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-0.5 rounded-lg">{shapeSize}mm</span>
+                      <div className="flex items-center gap-0.5">
+                        <Input
+                          type="number"
+                          min={30}
+                          max={120}
+                          value={shapeSize}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            if (!isNaN(v)) onShapeSizeChange(clampMm(v, 30, 120));
+                          }}
+                          className={mmInputClassName}
+                        />
+                        <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">mm</span>
+                      </div>
                     </div>
                     <Slider
                       value={[shapeSize]}
