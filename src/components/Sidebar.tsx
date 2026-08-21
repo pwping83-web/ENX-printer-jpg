@@ -8,6 +8,7 @@ import { Textarea } from './ui/textarea';
 import { Slider } from './ui/slider';
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { MmNumberInput } from './MmNumberInput';
 
 interface SidebarProps {
   images: UploadedImage[];
@@ -140,9 +141,6 @@ export function Sidebar({
     onShapeCountChange(newCount);
   };
 
-  const clampMm = (value: number, min: number, max: number) =>
-    Math.min(max, Math.max(min, value));
-
   const mmInputClassName =
     'w-9 text-center font-bold h-6 border-0 p-0 text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 rounded-md focus-visible:ring-1 focus-visible:ring-indigo-300 text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
 
@@ -187,21 +185,14 @@ export function Sidebar({
                     step={1}
                     className="flex-1"
                   />
-                  <div className="flex items-center gap-0.5 shrink-0 w-14 justify-center">
-                    <Input
-                      type="number"
+                  <div className="shrink-0 w-14 justify-center">
+                    <MmNumberInput
+                      value={customRectWidth || 50}
                       min={10}
                       max={150}
-                      value={customRectWidth || 50}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (!isNaN(v)) {
-                          onCustomRectSizeChange?.(clampMm(v, 10, 150), customRectHeight || 30);
-                        }
-                      }}
+                      onChange={(v) => onCustomRectSizeChange?.(v, customRectHeight || 30)}
                       className={mmInputClassName}
                     />
-                    <span className="text-[10px] font-bold text-indigo-600">mm</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -214,21 +205,14 @@ export function Sidebar({
                     step={1}
                     className="flex-1"
                   />
-                  <div className="flex items-center gap-0.5 shrink-0 w-14 justify-center">
-                    <Input
-                      type="number"
+                  <div className="shrink-0 w-14 justify-center">
+                    <MmNumberInput
+                      value={customRectHeight || 30}
                       min={10}
                       max={150}
-                      value={customRectHeight || 30}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (!isNaN(v)) {
-                          onCustomRectSizeChange?.(customRectWidth || 50, clampMm(v, 10, 150));
-                        }
-                      }}
+                      onChange={(v) => onCustomRectSizeChange?.(customRectWidth || 50, v)}
                       className={mmInputClassName}
                     />
-                    <span className="text-[10px] font-bold text-indigo-600">mm</span>
                   </div>
                 </div>
               </div>
@@ -238,20 +222,13 @@ export function Sidebar({
                   <Label className="text-[11px] font-bold text-slate-500 flex items-center gap-1.5">
                     <Ruler className="w-3.5 h-3.5" />크기
                   </Label>
-                  <div className="flex items-center gap-0.5">
-                    <Input
-                      type="number"
-                      min={30}
-                      max={120}
-                      value={shapeSize}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (!isNaN(v)) onShapeSizeChange(clampMm(v, 30, 120));
-                      }}
-                      className={mmInputClassName}
-                    />
-                    <span className="text-[10px] font-bold text-indigo-600">mm</span>
-                  </div>
+                  <MmNumberInput
+                    value={shapeSize}
+                    min={30}
+                    max={120}
+                    onChange={onShapeSizeChange}
+                    className={mmInputClassName}
+                  />
                 </div>
                 <Slider
                   value={[shapeSize]}
